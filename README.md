@@ -1,3 +1,5 @@
+<img align="left" width="48" height="48" src="https://raw.githubusercontent.com/Kidlike/link-sanitizer-extension/refs/heads/master/icons/link-sanitizer-icon-48.png" alt="Link Sanitizer 48px icon">
+
 # Link Sanitizer
 
 A Chromium-compatible (Manifest V3) browser extension that cleans links on
@@ -79,14 +81,4 @@ input normalization.
 
 ## Notes / TODO
 
-- Uses SlashCopy's **public** endpoint, which is rate-limited to 100
-  requests/hour per IP. For heavier use, switch to the authenticated
-  `/api/url/clean` endpoint with a JWT bearer token.
-- Cleaned URLs are cached in `chrome.storage.local` (keys prefixed `clean:`), so
-  the cache survives service-worker restarts and extension reloads and we don't
-  re-hit the API for links we've already seen. The cache is a rolling LRU bounded
-  to ~4 MiB (`MAX_CACHE_BYTES`): when a new entry would exceed the budget, the
-  oldest / least-recently-used entries are evicted until it fits. Cache hits
-  refresh recency. To wipe it entirely, run `chrome.storage.local.clear()` in the
-  service-worker console.
-- Add an icon set and `action` popup if a UI is wanted.
+- This is a PoC and uses SlashCopy's **public** API. Should be replaced with self-hosted API.
