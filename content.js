@@ -21,9 +21,33 @@ document.addEventListener(
   true
 );
 
+// True when `url` points to the same site as the current page — the same host,
+// or a subdomain relationship in either direction (e.g. example.com <->
+// www.example.com). This is a lightweight heuristic, not a Public Suffix List
+// lookup, so tighten it to an exact host match if subdomain grouping is wrong
+// for your use.
+function isSameSite(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    const here = location.hostname.toLowerCase();
+    if (!host || !here) return false;
+    return host === here || host.endsWith("." + here) || here.endsWith("." + host);
+  } catch {
+    return false;
+  }
+}
+
 function handleLink(anchor) {
   const original = anchor.href;
   if (!original || !/^https?:/i.test(original)) return;
+
+  // Skip the site's own internal links: there's nothing to clean on links that
+  // stay on the current site, and it avoids pointless API calls. Mark them
+  // processed so we don't re-evaluate on every hover.
+  if (isSameSite(original)) {
+    processed.add(anchor);
+    return;
+  }
 
   // If the extension was reloaded, updated, or removed, this now-stale content
   // script loses its connection and any chrome.runtime.* call throws

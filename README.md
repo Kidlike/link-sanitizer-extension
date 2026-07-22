@@ -15,6 +15,10 @@ the link's `href` in the page with the cleaned version.
 
 The original URL is preserved on the element as `data-link-sanitizer-original`.
 
+Links pointing to the current site (the same host, or a subdomain of it) are
+skipped — there's nothing to clean on internal navigation, and it avoids
+needless API calls. See `isSameSite` in `content.js`.
+
 ### Hover feedback
 
 The content script glows a box-shadow around the link (Web Animations API, so it

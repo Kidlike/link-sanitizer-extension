@@ -14,7 +14,7 @@ const OFF_WHITE = "245, 245, 240";
 // `nextResponse` shapes what sendMessage's callback receives:
 //   { response } and/or { lastError }. `throwOnSend` simulates the context
 //   dying between the guard and the send.
-function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwOnSend = false } = {}) {
+function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwOnSend = false, pageHost = "example.com" } = {}) {
   const timers = makeTimers();
   const consoleMock = makeConsole();
   const sendCalls = [];
@@ -44,11 +44,13 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
     chrome,
     document,
     console: consoleMock,
+    location: { hostname: pageHost },
+    URL,
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
   };
   const api = loadSource("content.js", context, [
-    "handleLink", "flashResult", "startProgress", "stopProgress", "processed", "HOVER_DELAY_MS",
+    "handleLink", "flashResult", "startProgress", "stopProgress", "isSameSite", "processed", "HOVER_DELAY_MS",
   ]);
 
   return { api, timers, consoleMock, sendCalls, getHandler: () => mouseoverHandler };
@@ -153,6 +155,43 @@ test("handleLink ignores non-http links", () => {
     api.handleLink(fakeAnchor(href));
   }
   assert.equal(sendCalls.length, 0);
+});
+
+test("isSameSite matches the page host and its subdomains, not other sites", () => {
+  const { api } = setup({ pageHost: "example.com" });
+  // Same host and subdomain relationships in both directions.
+  assert.equal(api.isSameSite("https://example.com/a"), true);
+  assert.equal(api.isSameSite("https://www.example.com/a"), true);
+  assert.equal(api.isSameSite("http://blog.example.com/x?y=1"), true);
+  // Different sites.
+  assert.equal(api.isSameSite("https://other.com/a"), false);
+  assert.equal(api.isSameSite("https://notexample.com/a"), false); // not a real subdomain
+  assert.equal(api.isSameSite("https://example.com.evil.com/a"), false);
+});
+
+test("handleLink skips same-site links (no send, no glow) and marks them processed", () => {
+  const { api, sendCalls } = setup({ pageHost: "example.com" });
+  const anchor = fakeAnchor("https://www.example.com/page?utm_source=x");
+
+  api.handleLink(anchor);
+
+  assert.equal(sendCalls.length, 0); // never asked the worker to clean it
+  assert.equal(anchor.animations.length, 0); // no progress pulse, no result glow
+  assert.equal(anchor.href, "https://www.example.com/page?utm_source=x"); // untouched
+  assert.equal(api.processed.has(anchor), true); // won't be re-evaluated
+});
+
+test("handleLink still cleans cross-site links", () => {
+  const { api, sendCalls } = setup({
+    pageHost: "example.com",
+    nextResponse: { response: { ok: true, cleaned: "https://other.com/p" } },
+  });
+  const anchor = fakeAnchor("https://other.com/p?utm_source=x");
+
+  api.handleLink(anchor);
+
+  assert.equal(sendCalls.length, 1);
+  assert.equal(anchor.href, "https://other.com/p");
 });
 
 test("handleLink bails quietly when the extension context is invalidated", () => {
