@@ -96,14 +96,18 @@ function makeTimers() {
   };
 }
 
-// A fake <a> element that records the animations flashResult() runs on it.
+// A fake <a> element that records the animations run on it. animate() returns a
+// cancelable handle (mirroring the Web Animations API) so the pulsing
+// in-progress glow can be started and cancelled like the real thing.
 function fakeAnchor(href) {
   return {
     href,
     dataset: {},
     animations: [],
     animate(keyframes, options) {
-      this.animations.push({ keyframes, options });
+      const anim = { keyframes, options, cancelled: false, cancel() { this.cancelled = true; } };
+      this.animations.push(anim);
+      return anim;
     },
   };
 }

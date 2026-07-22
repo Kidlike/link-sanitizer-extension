@@ -1,6 +1,6 @@
 {
   "name": "link-sanitizer-extension",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "private": true,
   "description": "Cleans links on hover via the SlashCopy API before you click them.",
   "type": "commonjs",

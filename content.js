@@ -34,8 +34,14 @@ function handleLink(anchor) {
   // Mark immediately so rapid re-hovers don't queue duplicate work.
   processed.add(anchor);
 
+  // Pulse an off-white glow while the worker analyzes the link; it loops until
+  // we cancel it and replace it with the green/orange result glow.
+  const progress = startProgress(anchor);
+
   try {
     chrome.runtime.sendMessage({ type: "CLEAN_URL", url: original }, (response) => {
+      stopProgress(progress);
+
       // The call failed (worker unavailable, non-200 from SlashCopy, rate
       // limit, etc.). Signal that the link was NOT sanitized so the user can
       // decide.
@@ -57,17 +63,43 @@ function handleLink(anchor) {
   } catch {
     // Context invalidated in the gap between the guard and the send. Ignore —
     // a page reload re-injects a fresh content script.
+    stopProgress(progress);
   }
 }
 
-// Subtle confirmation that the work finished: a brief glow that fades out.
-// Green means the link was checked and is safe to click; orange means the
-// SlashCopy call failed and the link is unchanged. Uses the Web Animations API
-// so nothing is left on the element afterwards (the animation doesn't persist)
-// and it isn't blocked by page CSP the way an injected <style> or inline style
-// attribute would be. box-shadow glows without affecting layout.
+// All hover feedback is the same box-shadow "glow", drawn with the Web
+// Animations API: not blocked by page CSP (unlike an injected <style> or inline
+// style attribute), self-cleaning (nothing persists once the animation ends or
+// is cancelled), and layout-neutral (box-shadow doesn't reflow).
+//   - analyzing: off-white glow, pulsing on a loop until the result replaces it
+//   - cleaned:   brief green glow (safe to click)
+//   - failed:    brief orange glow (link unchanged)
+const GLOW_GREEN = "52, 199, 89";
+const GLOW_ORANGE = "255, 149, 0";
+const GLOW_OFF_WHITE = "245, 245, 240";
+
+// In-progress indicator: an off-white glow that pulses (alternating in/out)
+// forever until stopProgress() cancels it. Returns the Animation handle, or
+// undefined if the platform lacks element.animate — stopProgress() tolerates
+// either.
+function startProgress(anchor) {
+  return anchor.animate?.(
+    [
+      { boxShadow: `0 0 0 2px rgba(${GLOW_OFF_WHITE}, 0.15)` },
+      { boxShadow: `0 0 0 2px rgba(${GLOW_OFF_WHITE}, 0.85)` },
+    ],
+    { duration: 700, iterations: Infinity, direction: "alternate", easing: "ease-in-out" }
+  );
+}
+
+function stopProgress(progress) {
+  progress?.cancel?.();
+}
+
+// Brief result glow that fades out. Green = checked and safe to click; orange =
+// the SlashCopy call failed and the link is unchanged.
 function flashResult(anchor, success) {
-  const rgb = success ? "52, 199, 89" : "255, 149, 0";
+  const rgb = success ? GLOW_GREEN : GLOW_ORANGE;
   anchor.animate?.(
     [
       { boxShadow: `0 0 0 2px rgba(${rgb}, 0.7)` },

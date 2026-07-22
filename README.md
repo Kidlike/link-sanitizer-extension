@@ -15,6 +15,17 @@ the link's `href` in the page with the cleaned version.
 
 The original URL is preserved on the element as `data-link-sanitizer-original`.
 
+### Hover feedback
+
+The content script glows a box-shadow around the link (Web Animations API, so it
+works under strict page CSP, self-cleans, and never reflows the page):
+
+| State | Glow |
+| --- | --- |
+| Analyzing | Off-white, pulsing in/out on a loop until the result arrives. |
+| Cleaned (safe to click) | Brief green glow. |
+| Failed (e.g. rate-limited; link unchanged) | Brief orange glow. |
+
 ## Tests
 
 Unit tests run on Node's built-in test runner — no dependencies to install:

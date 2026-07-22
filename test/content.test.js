@@ -8,6 +8,7 @@ const { loadSource, makeConsole, makeTimers, fakeAnchor } = require("./helpers")
 
 const GREEN = "52, 199, 89";
 const ORANGE = "255, 149, 0";
+const OFF_WHITE = "245, 245, 240";
 
 // Sandbox content.js with mocked document, chrome.runtime, and timers.
 // `nextResponse` shapes what sendMessage's callback receives:
@@ -47,13 +48,17 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
     clearTimeout: timers.clearTimeout,
   };
   const api = loadSource("content.js", context, [
-    "handleLink", "flashResult", "processed", "HOVER_DELAY_MS",
+    "handleLink", "flashResult", "startProgress", "stopProgress", "processed", "HOVER_DELAY_MS",
   ]);
 
   return { api, timers, consoleMock, sendCalls, getHandler: () => mouseoverHandler };
 }
 
+// The box-shadow color of the first animation (used for direct flashResult
+// tests) and the last animation (the result glow, after handleLink runs the
+// pulsing progress glow first).
 const firstShadow = (anchor) => anchor.animations[0].keyframes[0].boxShadow;
+const resultShadow = (anchor) => anchor.animations.at(-1).keyframes[0].boxShadow;
 
 test("flashResult glows green on success, orange on failure", () => {
   const { api } = setup();
@@ -70,6 +75,29 @@ test("flashResult tolerates elements without the Web Animations API", () => {
   assert.doesNotThrow(() => api.flashResult({ dataset: {} }, true)); // no .animate
 });
 
+test("startProgress pulses an off-white glow forever until stopped", () => {
+  const { api } = setup();
+  const anchor = fakeAnchor("h");
+
+  const progress = api.startProgress(anchor);
+
+  assert.match(firstShadow(anchor), new RegExp(OFF_WHITE));
+  assert.equal(anchor.animations[0].options.iterations, Infinity); // loops
+  assert.equal(anchor.animations[0].options.direction, "alternate"); // in/out pulse
+  assert.equal(progress.cancelled, false);
+
+  api.stopProgress(progress);
+  assert.equal(progress.cancelled, true);
+});
+
+test("startProgress / stopProgress tolerate a missing Web Animations API", () => {
+  const { api } = setup();
+  let progress;
+  assert.doesNotThrow(() => (progress = api.startProgress({ dataset: {} }))); // no .animate
+  assert.equal(progress, undefined);
+  assert.doesNotThrow(() => api.stopProgress(progress)); // no-op on undefined
+});
+
 test("handleLink swaps the href, preserves the original, and flashes green", () => {
   const original = "https://site.com/p?utm_source=x";
   const { api, sendCalls } = setup({ nextResponse: { response: { ok: true, cleaned: "https://site.com/p" } } });
@@ -82,7 +110,10 @@ test("handleLink swaps the href, preserves the original, and flashes green", () 
   assert.equal(sendCalls[0].url, original);
   assert.equal(anchor.href, "https://site.com/p");
   assert.equal(anchor.dataset.linkSanitizerOriginal, original);
-  assert.match(firstShadow(anchor), new RegExp(GREEN));
+  // First animation was the off-white pulse (now cancelled), last is the result.
+  assert.match(firstShadow(anchor), new RegExp(OFF_WHITE));
+  assert.equal(anchor.animations[0].cancelled, true);
+  assert.match(resultShadow(anchor), new RegExp(GREEN));
   assert.equal(api.processed.has(anchor), true);
 });
 
@@ -95,7 +126,7 @@ test("handleLink flashes green without swapping when already clean", () => {
 
   assert.equal(anchor.href, original);
   assert.equal(anchor.dataset.linkSanitizerOriginal, undefined); // no data attr set
-  assert.match(firstShadow(anchor), new RegExp(GREEN));
+  assert.match(resultShadow(anchor), new RegExp(GREEN));
 });
 
 test("handleLink flashes orange and logs when the worker reports failure", () => {
@@ -105,7 +136,7 @@ test("handleLink flashes orange and logs when the worker reports failure", () =>
   api.handleLink(anchor);
 
   assert.equal(anchor.href, "https://a.com"); // unchanged
-  assert.match(firstShadow(anchor), new RegExp(ORANGE));
+  assert.match(resultShadow(anchor), new RegExp(ORANGE));
   assert.ok(consoleMock.find("rate limited"));
 });
 
@@ -113,7 +144,7 @@ test("handleLink flashes orange on chrome.runtime.lastError", () => {
   const { api } = setup({ nextResponse: { lastError: { message: "no receiver" } } });
   const anchor = fakeAnchor("https://a.com");
   api.handleLink(anchor);
-  assert.match(firstShadow(anchor), new RegExp(ORANGE));
+  assert.match(resultShadow(anchor), new RegExp(ORANGE));
 });
 
 test("handleLink ignores non-http links", () => {
