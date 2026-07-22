@@ -59,11 +59,12 @@ function formatIgnoredHosts(list) {
 // --- DOM wiring (skipped when loaded outside a page, e.g. in unit tests) ---
 
 function initOptionsPage() {
+  const ctrlModeInput = document.getElementById("ctrl-mode");
   const delayInput = document.getElementById("hover-delay");
   const hostsInput = document.getElementById("ignored-hosts");
   const saveButton = document.getElementById("save");
   const status = document.getElementById("status");
-  if (!delayInput || !hostsInput || !saveButton) return;
+  if (!ctrlModeInput || !delayInput || !hostsInput || !saveButton) return;
 
   let statusTimer = null;
   function showStatus(message, isError = false) {
@@ -77,12 +78,15 @@ function initOptionsPage() {
   // Populate the form from stored settings (or defaults on first run).
   chrome.storage.local.get(SETTINGS_KEY).then((stored) => {
     const settings = stored?.[SETTINGS_KEY] ?? {};
+    // Ctrl mode is opt-out: default to on unless explicitly stored as false.
+    ctrlModeInput.checked = settings.ctrlMode !== false;
     delayInput.value = sanitizeDelay(settings.hoverDelayMs);
     hostsInput.value = formatIgnoredHosts(settings.ignoredHosts);
   });
 
   saveButton.addEventListener("click", () => {
     const settings = {
+      ctrlMode: ctrlModeInput.checked,
       hoverDelayMs: sanitizeDelay(delayInput.value),
       ignoredHosts: parseIgnoredHosts(hostsInput.value),
     };

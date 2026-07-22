@@ -18,7 +18,7 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
   const timers = makeTimers();
   const consoleMock = makeConsole();
   const sendCalls = [];
-  let mouseoverHandler;
+  const handlers = {};
 
   const chrome = {
     runtime: {
@@ -36,7 +36,7 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
   };
   const document = {
     addEventListener(type, handler) {
-      if (type === "mouseover") mouseoverHandler = handler;
+      handlers[type] = handler;
     },
   };
 
@@ -54,7 +54,14 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
     "applySettings", "isIgnoredHost", "hostMatches", "settings", "DEFAULT_HOVER_DELAY_MS",
   ]);
 
-  return { api, timers, consoleMock, sendCalls, getHandler: () => mouseoverHandler };
+  return {
+    api,
+    timers,
+    consoleMock,
+    sendCalls,
+    getHandler: () => handlers.mouseover,
+    getKeydownHandler: () => handlers.keydown,
+  };
 }
 
 // The box-shadow color of the first animation (used for direct flashResult
@@ -209,8 +216,11 @@ test("handleLink swallows a synchronous send throw (context died mid-call)", () 
 
 // --- mouseover debounce ---
 
-function hoverEvent(anchor) {
-  return { target: { closest: () => anchor } };
+// ctrlKey defaults to true because ctrl mode is on by default; debounce tests
+// below aren't about ctrl, so they hover "with Ctrl held". Ctrl-mode tests pass
+// it explicitly.
+function hoverEvent(anchor, ctrlKey = true) {
+  return { ctrlKey, target: { closest: () => anchor } };
 }
 
 test("hovering a link schedules one debounced clean that runs on flush", () => {
@@ -282,6 +292,100 @@ test("isIgnoredHost matches the host and its subdomains, not lookalikes", () => 
   assert.equal(api.isIgnoredHost("notkagi.com", list), false);
   assert.equal(api.isIgnoredHost("kagi.com.evil.com", list), false);
   assert.equal(api.isIgnoredHost("kagi.com", []), false);
+});
+
+test("ctrl mode is on by default and gates hovering on the Ctrl key", () => {
+  const { api, timers, getHandler } = setup({ nextResponse: { response: { ok: true, cleaned: "https://a" } } });
+  assert.equal(api.settings.ctrlMode, true); // default
+
+  const handler = getHandler();
+  handler(hoverEvent(fakeAnchor("https://a"), false)); // hover WITHOUT ctrl
+  assert.equal(timers.pendingCount(), 0); // nothing scheduled
+
+  handler(hoverEvent(fakeAnchor("https://a"), true)); // hover WITH ctrl
+  assert.equal(timers.pendingCount(), 1); // now it debounces
+});
+
+test("disabling ctrl mode triggers on a bare hover", () => {
+  const { api, timers, getHandler } = setup({ nextResponse: { response: { ok: true, cleaned: "https://a" } } });
+
+  api.applySettings({ ctrlMode: false });
+  assert.equal(api.settings.ctrlMode, false);
+
+  getHandler()(hoverEvent(fakeAnchor("https://a"), false)); // no ctrl needed
+  assert.equal(timers.pendingCount(), 1);
+});
+
+test("ctrl mode, hover-then-ctrl: pressing Ctrl cleans instantly (no delay)", () => {
+  const { timers, sendCalls, getHandler, getKeydownHandler } = setup({
+    nextResponse: { response: { ok: true, cleaned: "https://a" } },
+  });
+
+  getHandler()(hoverEvent(fakeAnchor("https://a?utm=1"), false)); // hover first, no Ctrl
+  assert.equal(timers.pendingCount(), 0); // nothing scheduled yet
+  assert.equal(sendCalls.length, 0);
+
+  getKeydownHandler()({ key: "Control" }); // then press Ctrl
+  assert.equal(timers.pendingCount(), 0); // bypassed the debounce entirely
+  assert.equal(sendCalls.length, 1); // cleaned immediately
+  assert.equal(sendCalls[0].url, "https://a?utm=1");
+});
+
+test("ctrl mode, ctrl-then-hover: hovering with Ctrl held uses the delay", () => {
+  const { timers, sendCalls, getHandler, getKeydownHandler } = setup({
+    nextResponse: { response: { ok: true, cleaned: "https://a" } },
+  });
+
+  getKeydownHandler()({ key: "Control" }); // Ctrl down before hovering anything
+  assert.equal(sendCalls.length, 0); // no link under the pointer yet
+
+  getHandler()(hoverEvent(fakeAnchor("https://a?utm=1"), true)); // then hover
+  assert.equal(timers.pendingCount(), 1); // debounced, not instant
+  assert.equal(sendCalls.length, 0);
+
+  timers.flush();
+  assert.equal(sendCalls.length, 1); // fires only after the delay elapses
+});
+
+test("keydown does nothing when the pointer isn't on a link", () => {
+  const { timers, sendCalls, getKeydownHandler } = setup();
+  getKeydownHandler()({ key: "Control" });
+  assert.equal(timers.pendingCount(), 0);
+  assert.equal(sendCalls.length, 0);
+});
+
+test("a non-Ctrl keydown never triggers a clean", () => {
+  const { sendCalls, getHandler, getKeydownHandler } = setup();
+  getHandler()(hoverEvent(fakeAnchor("https://a"), false));
+  getKeydownHandler()({ key: "Shift" });
+  assert.equal(sendCalls.length, 0);
+});
+
+test("moving off the link clears it, so a later Ctrl press does nothing", () => {
+  const { sendCalls, getHandler, getKeydownHandler } = setup();
+  getHandler()(hoverEvent(fakeAnchor("https://a"), false)); // hover a link (no ctrl)
+  getHandler()({ ctrlKey: false, target: { closest: () => null } }); // move to non-link
+  getKeydownHandler()({ key: "Control" });
+  assert.equal(sendCalls.length, 0); // hovered was cleared
+});
+
+test("the keydown path also stays inert on an ignored host", () => {
+  const { api, sendCalls, getHandler, getKeydownHandler } = setup({ pageHost: "kagi.com" });
+  api.applySettings({ ignoredHosts: ["kagi.com"] });
+
+  getHandler()(hoverEvent(fakeAnchor("https://other.com/p"), false));
+  getKeydownHandler()({ key: "Control" });
+  assert.equal(sendCalls.length, 0); // disabled here → nothing cleaned
+});
+
+test("applySettings defaults ctrlMode to true when unset or malformed", () => {
+  const { api } = setup();
+  for (const input of [{}, null, { ctrlMode: "yes" }, { ctrlMode: 1 }]) {
+    api.applySettings(input);
+    assert.equal(api.settings.ctrlMode, true);
+  }
+  api.applySettings({ ctrlMode: false });
+  assert.equal(api.settings.ctrlMode, false);
 });
 
 test("mouseover schedules nothing on an ignored host", () => {

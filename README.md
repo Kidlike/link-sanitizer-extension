@@ -44,8 +44,13 @@ works under strict page CSP, self-cleans, and never reflows the page):
 
 Open the options page — right-click the extension and choose **Options**, or go
 to `chrome://extensions`, open the extension's **Details**, and click
-**Extension options**. Two settings are available:
+**Extension options**. Three settings are available:
 
+- **Ctrl mode** (on by default): only clean a link when <kbd>Ctrl</kbd> is held
+  while hovering it, so the extension stays dormant during normal browsing. Turn
+  it off to clean links on plain hover. Two timings:
+  - Hold <kbd>Ctrl</kbd>, then hover a link → the usual hover delay applies.
+  - Already hovering a link, then press <kbd>Ctrl</kbd> → cleans instantly.
 - **Hover delay (ms):** how long the pointer must rest on a link before it's
   cleaned (default `200`). Clearing the field restores the default.
 - **Disabled on these sites:** one host per line. On these sites — and their

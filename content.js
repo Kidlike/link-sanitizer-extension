@@ -14,6 +14,9 @@ const settings = {
   hoverDelayMs: DEFAULT_HOVER_DELAY_MS,
   // Hosts on which the extension does nothing at all (see disabledHere).
   ignoredHosts: [],
+  // "Ctrl mode": when true (the default), a link is only cleaned if Ctrl is
+  // held while hovering, so the extension stays dormant during normal browsing.
+  ctrlMode: true,
 };
 
 // True when the *current page* is on an ignored host, in which case we never
@@ -41,6 +44,8 @@ function applySettings(stored) {
   const delay = Math.round(Number(next.hoverDelayMs));
   settings.hoverDelayMs = Number.isFinite(delay) && delay >= 0 ? delay : DEFAULT_HOVER_DELAY_MS;
   settings.ignoredHosts = Array.isArray(next.ignoredHosts) ? next.ignoredHosts : [];
+  // Default to true when unset or malformed — ctrl mode is opt-out.
+  settings.ctrlMode = typeof next.ctrlMode === "boolean" ? next.ctrlMode : true;
   disabledHere = isIgnoredHost(location.hostname, settings.ignoredHosts);
 }
 
@@ -63,7 +68,23 @@ if (chrome.storage?.onChanged?.addListener) {
 // Tracks links we've already processed so we don't re-clean on every hover.
 const processed = new WeakSet();
 
+// The anchor currently under the pointer (or null). Kept current by mouseover
+// so the keydown path can act on it: in ctrl mode, pressing Ctrl while already
+// resting on a link cleans it immediately, without waiting out the delay.
+let hovered = null;
+
 let hoverTimer = null;
+
+function cancelPending() {
+  clearTimeout(hoverTimer);
+  hoverTimer = null;
+}
+
+// Debounced trigger: clean only if the pointer lingers for the configured delay.
+function scheduleClean(anchor) {
+  cancelPending();
+  hoverTimer = setTimeout(() => handleLink(anchor), settings.hoverDelayMs);
+}
 
 document.addEventListener(
   "mouseover",
@@ -71,12 +92,37 @@ document.addEventListener(
     // Stay completely out of the way on ignored sites.
     if (disabledHere) return;
 
-    const anchor = event.target.closest?.("a[href]");
+    const anchor = event.target.closest?.("a[href]") || null;
+
+    // Track what's under the pointer. When it moves to a different target (or
+    // off links entirely), drop any debounce scheduled for the previous one.
+    if (anchor !== hovered) {
+      cancelPending();
+      hovered = anchor;
+    }
     if (!anchor || processed.has(anchor)) return;
 
-    // Debounce: only act if the pointer lingers on the link.
-    clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => handleLink(anchor), settings.hoverDelayMs);
+    // Use the delay when the pointer arrives at a link that's ready to clean:
+    // either plain-hover mode, or ctrl-mode with Ctrl already held before the
+    // hover (ctrl-then-hover). If ctrl mode is on but Ctrl isn't down yet, we
+    // do nothing here and wait for the keydown handler below.
+    if (!settings.ctrlMode || event.ctrlKey) {
+      scheduleClean(anchor);
+    }
+  },
+  true
+);
+
+// Ctrl-mode, hover-then-ctrl: the pointer is already resting on a link when
+// Ctrl is pressed, so clean it instantly rather than starting the delay.
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (disabledHere || !settings.ctrlMode) return;
+    if (event.key !== "Control") return;
+    if (!hovered || processed.has(hovered)) return;
+    cancelPending();
+    handleLink(hovered);
   },
   true
 );
