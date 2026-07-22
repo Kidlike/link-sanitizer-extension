@@ -5,6 +5,13 @@ hover. When you rest the pointer on a link, the extension sends the URL to the
 [SlashCopy URL-cleaning API](https://slashcopy.com/apidocs.html) and replaces
 the link's `href` in the page with the cleaned version.
 
+> [!NOTE]
+> 100% Vibe-coded with Claude Opus 4.8
+
+
+[link-sanitizer-demo.webm](https://github.com/user-attachments/assets/d388fafd-27eb-4be6-8008-8a3a9e056453)
+
+
 ## How it works
 
 | File | Role |
