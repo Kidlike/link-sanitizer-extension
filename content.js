@@ -1,7 +1,64 @@
 // Content script: watches for links under the pointer, asks the background
 // worker to clean them, and swaps the href in place.
 
-const HOVER_DELAY_MS = 200;
+// User-tunable settings live in chrome.storage.local under the `settings` key
+// and are edited on the options page (options.html/js). We hold a live copy
+// here, seeded with defaults and refreshed whenever storage changes, so edits
+// take effect on open pages without a reload. Keep DEFAULT_HOVER_DELAY_MS in
+// sync with the options page.
+const SETTINGS_KEY = "settings";
+const DEFAULT_HOVER_DELAY_MS = 200;
+
+const settings = {
+  // How long the pointer must rest on a link before we clean it.
+  hoverDelayMs: DEFAULT_HOVER_DELAY_MS,
+  // Hosts on which the extension does nothing at all (see disabledHere).
+  ignoredHosts: [],
+};
+
+// True when the *current page* is on an ignored host, in which case we never
+// touch its links. Recomputed by applySettings() whenever the list changes.
+let disabledHere = false;
+
+// True when `pageHost` equals `entry` or is a subdomain of it, so a single
+// "kagi.com" entry also silences "www.kagi.com". Mirrors the subdomain
+// heuristic used by isSameSite below.
+function hostMatches(pageHost, entry) {
+  const host = String(pageHost).toLowerCase();
+  const target = String(entry).trim().toLowerCase();
+  if (!host || !target) return false;
+  return host === target || host.endsWith("." + target);
+}
+
+function isIgnoredHost(pageHost, list) {
+  return Array.isArray(list) && list.some((entry) => hostMatches(pageHost, entry));
+}
+
+// Merge a stored settings object over the defaults, validating each field so a
+// malformed value can't break hovering. Recomputes disabledHere for this page.
+function applySettings(stored) {
+  const next = stored && typeof stored === "object" ? stored : {};
+  const delay = Math.round(Number(next.hoverDelayMs));
+  settings.hoverDelayMs = Number.isFinite(delay) && delay >= 0 ? delay : DEFAULT_HOVER_DELAY_MS;
+  settings.ignoredHosts = Array.isArray(next.ignoredHosts) ? next.ignoredHosts : [];
+  disabledHere = isIgnoredHost(location.hostname, settings.ignoredHosts);
+}
+
+// Load settings once at startup, then keep them current. Guarded because the
+// unit-test sandbox mocks only chrome.runtime, not chrome.storage.
+if (chrome.storage?.local?.get) {
+  chrome.storage.local
+    .get(SETTINGS_KEY)
+    .then((stored) => applySettings(stored?.[SETTINGS_KEY]))
+    .catch((error) => console.warn("[Link Sanitizer] failed to load settings:", String(error)));
+}
+if (chrome.storage?.onChanged?.addListener) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[SETTINGS_KEY]) {
+      applySettings(changes[SETTINGS_KEY].newValue);
+    }
+  });
+}
 
 // Tracks links we've already processed so we don't re-clean on every hover.
 const processed = new WeakSet();
@@ -11,12 +68,15 @@ let hoverTimer = null;
 document.addEventListener(
   "mouseover",
   (event) => {
+    // Stay completely out of the way on ignored sites.
+    if (disabledHere) return;
+
     const anchor = event.target.closest?.("a[href]");
     if (!anchor || processed.has(anchor)) return;
 
     // Debounce: only act if the pointer lingers on the link.
     clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => handleLink(anchor), HOVER_DELAY_MS);
+    hoverTimer = setTimeout(() => handleLink(anchor), settings.hoverDelayMs);
   },
   true
 );

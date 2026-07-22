@@ -50,7 +50,8 @@ function setup({ runtimeId = "ext-id", invalidated = false, nextResponse, throwO
     clearTimeout: timers.clearTimeout,
   };
   const api = loadSource("content.js", context, [
-    "handleLink", "flashResult", "startProgress", "stopProgress", "isSameSite", "processed", "HOVER_DELAY_MS",
+    "handleLink", "flashResult", "startProgress", "stopProgress", "isSameSite", "processed",
+    "applySettings", "isIgnoredHost", "hostMatches", "settings", "DEFAULT_HOVER_DELAY_MS",
   ]);
 
   return { api, timers, consoleMock, sendCalls, getHandler: () => mouseoverHandler };
@@ -242,4 +243,56 @@ test("an already-processed link is not re-scheduled", () => {
   api.processed.add(anchor); // pretend it was already handled
   getHandler()(hoverEvent(anchor));
   assert.equal(timers.pendingCount(), 0);
+});
+
+// --- settings: hover delay + ignored hosts ---
+
+test("defaults apply before any stored settings load", () => {
+  const { api, timers, getHandler } = setup({ nextResponse: { response: { ok: true, cleaned: "https://a" } } });
+  assert.equal(api.settings.hoverDelayMs, api.DEFAULT_HOVER_DELAY_MS);
+  assert.equal(api.DEFAULT_HOVER_DELAY_MS, 200);
+
+  getHandler()(hoverEvent(fakeAnchor("https://a")));
+  assert.equal(timers.lastDelay(), 200); // debounce uses the default delay
+});
+
+test("applySettings clamps the hover delay and uses it for the debounce", () => {
+  const { api, timers, getHandler } = setup({ nextResponse: { response: { ok: true, cleaned: "https://a" } } });
+
+  api.applySettings({ hoverDelayMs: 750 });
+  assert.equal(api.settings.hoverDelayMs, 750);
+  getHandler()(hoverEvent(fakeAnchor("https://a")));
+  assert.equal(timers.lastDelay(), 750);
+});
+
+test("applySettings falls back to the default for a malformed delay", () => {
+  const { api } = setup();
+  for (const bad of [{ hoverDelayMs: -1 }, { hoverDelayMs: "abc" }, {}, null]) {
+    api.applySettings(bad);
+    assert.equal(api.settings.hoverDelayMs, api.DEFAULT_HOVER_DELAY_MS);
+  }
+});
+
+test("isIgnoredHost matches the host and its subdomains, not lookalikes", () => {
+  const { api } = setup();
+  const list = ["kagi.com"];
+  assert.equal(api.isIgnoredHost("kagi.com", list), true);
+  assert.equal(api.isIgnoredHost("www.kagi.com", list), true);
+  assert.equal(api.isIgnoredHost("search.kagi.com", list), true);
+  assert.equal(api.isIgnoredHost("notkagi.com", list), false);
+  assert.equal(api.isIgnoredHost("kagi.com.evil.com", list), false);
+  assert.equal(api.isIgnoredHost("kagi.com", []), false);
+});
+
+test("mouseover schedules nothing on an ignored host", () => {
+  const { api, timers, getHandler } = setup({ pageHost: "kagi.com" });
+
+  api.applySettings({ ignoredHosts: ["kagi.com"] }); // disables this page
+  getHandler()(hoverEvent(fakeAnchor("https://other.com/p?utm=1")));
+  assert.equal(timers.pendingCount(), 0); // never even debounced
+
+  // ...and re-enabling (list cleared) restores normal behavior.
+  api.applySettings({ ignoredHosts: [] });
+  getHandler()(hoverEvent(fakeAnchor("https://other.com/p?utm=1")));
+  assert.equal(timers.pendingCount(), 1);
 });

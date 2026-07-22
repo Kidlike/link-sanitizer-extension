@@ -19,6 +19,7 @@ the link's `href` in the page with the cleaned version.
 | `manifest.json` | MV3 manifest; declares the content script, background worker, and host permission for `slashcopy.com`. |
 | `content.js` | Runs on every page. Debounces hover, then asks the background worker to clean the hovered link and swaps its `href`. |
 | `background.js` | Service worker. `POST`s `{ "url": ... }` to `https://slashcopy.com/api/url/clean/public`, reads `cleanedUrl` from the JSON response, caches results, and de-dupes concurrent requests. The cross-origin call lives here because content scripts are blocked by page CSP/CORS. |
+| `options.html` / `options.js` | Settings panel (the extension's options page). Edits the hover delay and the per-site disable list. |
 
 The original URL is preserved on the element as `data-link-sanitizer-original`.
 
@@ -37,6 +38,22 @@ works under strict page CSP, self-cleans, and never reflows the page):
 | Cleaned (safe to click) | Brief green glow. |
 | Failed (e.g. rate-limited; link unchanged) | Brief orange glow. |
 
+## Settings
+
+Open the options page — right-click the extension and choose **Options**, or go
+to `chrome://extensions`, open the extension's **Details**, and click
+**Extension options**. Two settings are available:
+
+- **Hover delay (ms):** how long the pointer must rest on a link before it's
+  cleaned (default `200`). Clearing the field restores the default.
+- **Disabled on these sites:** one host per line. On these sites — and their
+  subdomains — the extension does nothing at all and never touches links.
+  Entering `kagi.com` also covers `www.kagi.com`, `search.kagi.com`, etc. This
+  matches on the **page** you're browsing, not on where a link points.
+
+Settings live in `chrome.storage.local` under the `settings` key and apply to
+open pages immediately (via `chrome.storage.onChanged`) — no reload needed.
+
 ## Tests
 
 Unit tests run on Node's built-in test runner — no dependencies to install:
@@ -49,7 +66,9 @@ Each source file is loaded into a `vm` sandbox with mocked browser globals
 (`chrome`, `fetch`, `document`, timers) so the real extension code is exercised
 without being modified. Coverage includes response parsing, rate-limit/error
 handling, in-flight de-duplication, the rolling-LRU cache (eviction, recency,
-oversized entries, hydration), the hover debounce, and the green/orange feedback.
+oversized entries, hydration), the hover debounce, the green/orange feedback,
+the configurable hover delay and per-site disable list, and the options-page
+input normalization.
 
 ## Load it in Chrome / Edge / Brave
 
@@ -70,5 +89,4 @@ oversized entries, hydration), the hover debounce, and the green/orange feedback
   oldest / least-recently-used entries are evicted until it fits. Cache hits
   refresh recency. To wipe it entirely, run `chrome.storage.local.clear()` in the
   service-worker console.
-- Add an options page / toggle to enable per-site.
 - Add an icon set and `action` popup if a UI is wanted.

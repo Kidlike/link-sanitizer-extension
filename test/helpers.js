@@ -78,16 +78,20 @@ function rawResponse(text, { ok = true, status = 200 } = {}) {
 function makeTimers() {
   let nextId = 1;
   const pending = new Map();
+  const delays = [];
   return {
-    setTimeout: (fn) => {
+    setTimeout: (fn, delay) => {
       const id = nextId++;
       pending.set(id, fn);
+      delays.push(delay);
       return id;
     },
     clearTimeout: (id) => {
       pending.delete(id);
     },
     pendingCount: () => pending.size,
+    // Delay (ms) passed to the most recent setTimeout call.
+    lastDelay: () => delays.at(-1),
     flush: () => {
       const fns = [...pending.values()];
       pending.clear();
