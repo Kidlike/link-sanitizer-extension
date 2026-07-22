@@ -15,6 +15,20 @@ the link's `href` in the page with the cleaned version.
 
 The original URL is preserved on the element as `data-link-sanitizer-original`.
 
+## Tests
+
+Unit tests run on Node's built-in test runner — no dependencies to install:
+
+```
+npm test          # or: node --test "test/*.test.js"
+```
+
+Each source file is loaded into a `vm` sandbox with mocked browser globals
+(`chrome`, `fetch`, `document`, timers) so the real extension code is exercised
+without being modified. Coverage includes response parsing, rate-limit/error
+handling, in-flight de-duplication, the rolling-LRU cache (eviction, recency,
+oversized entries, hydration), the hover debounce, and the green/orange feedback.
+
 ## Load it in Chrome / Edge / Brave
 
 1. Go to `chrome://extensions`.
@@ -27,7 +41,12 @@ The original URL is preserved on the element as `data-link-sanitizer-original`.
 - Uses SlashCopy's **public** endpoint, which is rate-limited to 100
   requests/hour per IP. For heavier use, switch to the authenticated
   `/api/url/clean` endpoint with a JWT bearer token.
+- Cleaned URLs are cached in `chrome.storage.local` (keys prefixed `clean:`), so
+  the cache survives service-worker restarts and extension reloads and we don't
+  re-hit the API for links we've already seen. The cache is a rolling LRU bounded
+  to ~4 MiB (`MAX_CACHE_BYTES`): when a new entry would exceed the budget, the
+  oldest / least-recently-used entries are evicted until it fits. Cache hits
+  refresh recency. To wipe it entirely, run `chrome.storage.local.clear()` in the
+  service-worker console.
 - Add an options page / toggle to enable per-site.
-- Consider persisting the cache via `chrome.storage` (permission already
-  declared) so it survives service-worker restarts.
 - Add an icon set and `action` popup if a UI is wanted.

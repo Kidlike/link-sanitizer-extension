@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Link Sanitizer",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "description": "Cleans links on hover via linkcleaner.app before you click them.",
   "permissions": ["storage"],
   "host_permissions": ["https://slashcopy.com/*"],
