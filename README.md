@@ -10,6 +10,9 @@ the link's `href` in the page with the cleaned version.
 > [!NOTE]
 > 100% Vibe-coded with Claude Opus 4.8
 
+> [!WARNING]
+> This is a PoC and uses SlashCopy's **public** API. Should be replaced with self-hosted API.
+
 
 [link-sanitizer-demo.webm](https://github.com/user-attachments/assets/d388fafd-27eb-4be6-8008-8a3a9e056453)
 
@@ -83,7 +86,3 @@ input normalization.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this folder.
 4. Hover over links on any page to see them cleaned.
-
-## Notes / TODO
-
-- This is a PoC and uses SlashCopy's **public** API. Should be replaced with self-hosted API.
